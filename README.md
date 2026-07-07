@@ -1,111 +1,176 @@
 # IncluPilot
 
-Internal client project hub — **powered by IncluHub**.
+A multi-portal client project hub for agencies, powered by [IncluHub](https://github.com/preetamnaik3-cpu/inclu-pilot).
 
-Clients see project progress, comment on work items, and chat with their manager only. Managers assign flexible work, relay feedback, and control what clients see.
+IncluPilot connects clients, project managers, and delivery teams in one workspace. Managers control what clients see; clients track activities, share feedback, and communicate through a dedicated channel.
 
-## Quick start (demo mode)
+## Features
 
-No Supabase needed — runs with fake data:
+- **Client portal** — project home, activities, manager chat, notifications
+- **Manager portal** — multi-client overview, activity management, publish workflow, file vault
+- **Team portal** — assigned tasks, quick updates, internal manager chat
+- **Unified activity stream** — `hub_updates` as the single source of truth for updates, notes, and feed items
+- **Role-based access** — authentication and routing driven by `profiles.role` with Row Level Security
+- **Realtime messaging** — client–manager and internal team conversations with file attachments
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS 4 |
+| Backend | Supabase (Auth, Postgres, Storage, Realtime) |
+| Deployment | Vercel (recommended) |
+
+## Prerequisites
+
+- Node.js 20+
+- npm
+- A [Supabase](https://supabase.com) project
+
+## Getting Started
+
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/preetamnaik3-cpu/inclu-pilot.git
+cd inclu-pilot
 npm install
-npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and pick a role.
-
-## Production setup (Supabase)
-
-### 1. Create a Supabase project
-
-1. Go to [supabase.com](https://supabase.com) and create a project
-2. Copy your **Project URL** and **anon key** from Settings → API
-
-### 2. Configure environment
+### 2. Environment variables
 
 ```bash
 cp .env.example .env.local
 ```
 
-Fill in:
+Set the following in `.env.local` (values from Supabase → **Project Settings → API**):
 
-```
+```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-### 3. Run database migrations
+> `.env.local` is gitignored. Never commit credentials to version control.
 
-**Option A — one-shot (fresh project):** paste and run `supabase/schema/canonical.sql` in Supabase Dashboard → SQL Editor.
+### 3. Database setup
 
-**Option B — incremental (Supabase CLI or manual):** run these in order:
+**Fresh database (recommended):** run `supabase/schema/canonical.sql` in the Supabase SQL Editor.
 
-1. `supabase/migrations/20260707000000_initial_schema.sql`
-2. `supabase/migrations/20260707100100_chat_attachments.sql`
-3. `supabase/migrations/20260707120000_unified_hub_updates.sql`
-4. `supabase/migrations/20260707150000_fix_internal_team_enum.sql` (only if you ran an older copy of step 1 with `internal` instead of `internal_team`)
+**Incremental migrations:** apply files in `supabase/migrations/` in chronological order:
 
-> Legacy duplicate `20260324120000_initial_schema.sql` is archived under `supabase/migrations/_archive/` — do not run it on new projects.
+1. `20260707000000_initial_schema.sql`
+2. `20260707100100_chat_attachments.sql`
+3. `20260707120000_unified_hub_updates.sql`
+4. `20260707150000_fix_internal_team_enum.sql`
+5. `20260707190000_p1_multi_client_files_notifications.sql`
 
-### 4. Create demo users
+Initial data can be loaded via `supabase/seed.sql` and `supabase/seed-multi-client.sql` after users are provisioned in Supabase Auth.
 
-In Supabase Dashboard → Authentication → Users, create:
+### 4. Enable Realtime
 
-| Email | Password | Role (set in profiles after signup) |
-|-------|----------|-------------------------------------|
-| rahul@demo.com | demo123456 | client |
-| priya@demo.com | demo123456 | manager |
-| alex@demo.com | demo123456 | team |
+In Supabase → **Database → Publications**, ensure `messages` and `hub_updates` are enabled on the `supabase_realtime` publication.
 
-After each user signs up, update their profile in SQL Editor:
+### 5. Run locally
 
-```sql
-update public.profiles set role = 'manager', full_name = 'Priya Sharma', designation = 'Project Manager' where email = 'priya@demo.com';
-update public.profiles set role = 'client', full_name = 'Rahul Mehta', designation = 'Client' where email = 'rahul@demo.com';
-update public.profiles set role = 'team', full_name = 'Alex Kumar', designation = 'Web Designer' where email = 'alex@demo.com';
+```bash
+npm run dev
 ```
 
-Then uncomment and run seed data from `supabase/seed.sql` (replace `:client_id`, `:manager_id`, `:team_id` with real profile UUIDs).
+Open [http://localhost:3000](http://localhost:3000) and sign in with a provisioned account.
 
-### 5. Enable Realtime
+Production build:
 
-In Supabase Dashboard → Database → Replication, ensure `messages` and `hub_updates` are enabled for realtime.
+```bash
+npm run build
+npm start
+```
 
-### 6. Sign in
+## Authentication & Roles
 
-Restart `npm run dev`. The login page shows email/password only (no role picker). After sign-in, middleware routes you by `profiles.role` and blocks cross-portal URLs.
+Users are created in Supabase Auth. A profile row is created automatically on signup; assign roles via the `profiles` table:
 
-### 7. P1 migration (multi-client, files, notifications)
+| Role | Portal route | Description |
+|------|--------------|-------------|
+| `client` | `/client` | Project visibility, activities, manager chat |
+| `manager` | `/manager` | Client portfolio, activities, publish controls |
+| `team` | `/team/work` | Assigned work items, internal updates |
+| `admin` | `/manager` | Full manager access |
 
-Run `supabase/migrations/20260707190000_p1_multi_client_files_notifications.sql` in SQL Editor.
+Middleware enforces portal isolation based on `profiles.role`.
 
-Optional: add 2 more client users and run `supabase/seed-multi-client.sql` for manager multi-client testing.
+## Architecture
 
-## Deploy to Vercel
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Client    │     │   Manager   │     │    Team     │
+│   Portal    │     │   Portal    │     │   Portal    │
+└──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+       │                   │                   │
+       └───────────────────┼───────────────────┘
+                           │
+                    Next.js App Router
+                           │
+              ┌────────────┴────────────┐
+              │       Supabase          │
+              │  Auth · Postgres · RLS  │
+              │  Storage · Realtime     │
+              └─────────────────────────┘
+```
 
-1. Push to GitHub
-2. Import project in [vercel.com](https://vercel.com)
-3. Add the same env vars from `.env.local`
-4. Deploy
+### Data model
 
-## Roles
+| UI concept | Database table |
+|------------|----------------|
+| Activities | `work_items` |
+| Updates & notes | `hub_updates` |
+| Chat | `conversations`, `messages` |
+| Files | `activity-files` storage bucket + `hub_updates` (`file_upload`) |
+| Read state | `notification_reads`, `conversation_reads` |
 
-| Role | Route | Access |
-|------|-------|--------|
-| Client | `/client` | Client portal only |
-| Manager | `/manager` | Manager portal only |
-| Team | `/team/work` | Team portal only |
-| Admin | `/manager` | All portals |
+Team updates are written with `visibility = manager` until a manager publishes them to the client.
 
-## Data model notes
+## Project Structure
 
-- **Activities** in the UI map to `work_items` in the database.
-- **Updates, notes, and feed items** use `hub_updates` as the single write path (legacy `activity_updates` and `work_item_comments` tables remain for backfill only).
-- Manager is the publish gate: team quick updates stay `visibility = manager` until published to the client.
+```
+src/
+├── app/
+│   ├── client/          # Client portal routes
+│   ├── manager/         # Manager portal routes
+│   └── team/            # Team portal routes
+├── components/          # UI components
+├── lib/
+│   ├── actions/         # Server actions
+│   ├── auth/            # Role routing helpers
+│   ├── updates/         # Hub update queries & selectors
+│   └── supabase/        # Supabase clients
+└── middleware.ts        # Session & role guards
+supabase/
+├── migrations/          # Schema migrations
+├── schema/              # Canonical schema (fresh installs)
+└── seed*.sql            # Reference seed scripts
+```
 
-## Branding
+## Deployment
 
-- Product: **IncluPilot**
-- Powered by: **IncluHub**
-- Logo: `public/incluhub-logo.png`
+### Vercel
+
+1. Import the repository from GitHub
+2. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in **Project Settings → Environment Variables**
+3. Deploy
+
+The Supabase database is hosted separately and is not tied to the frontend deployment lifecycle.
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm start` | Run production server |
+| `npm run lint` | Run ESLint |
+
+## License
+
+Private — All rights reserved.
