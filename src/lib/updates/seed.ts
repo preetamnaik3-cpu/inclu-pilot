@@ -1,0 +1,175 @@
+import {
+  ACTIVE_DEMO_PROJECT_ID,
+  demoClient,
+  demoManager,
+  demoTeamMember,
+} from "@/lib/demo-data";
+import type { HubUpdate } from "@/lib/types";
+
+/**
+ * Single seeded update stream for the live demo project.
+ * Replaces separate demoActivityUpdates, demoComments, and project.activities feeds.
+ */
+export function buildDemoHubUpdates(): HubUpdate[] {
+  const projectId = ACTIVE_DEMO_PROJECT_ID;
+  let sortKey = 1_700_000_000_000;
+
+  function seed(partial: Omit<HubUpdate, "sortKey" | "projectId">): HubUpdate {
+    sortKey += 1;
+    return { ...partial, projectId, sortKey };
+  }
+
+  const updates: HubUpdate[] = [
+    seed({
+      id: "upd-5",
+      activityId: "work-5",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "manager_update",
+      body: "Logo package delivered — all formats included. Marking this activity complete.",
+      visibility: "client",
+      publishedAt: "12 Mar",
+      createdAt: "12 Mar",
+    }),
+    seed({
+      id: "upd-4",
+      activityId: "work-3",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "manager_update",
+      body: "3 of 5 reels are drafted. Launch week schedule is lining up.",
+      visibility: "client",
+      publishedAt: "Mon",
+      createdAt: "Mon",
+    }),
+    seed({
+      id: "upd-3",
+      activityId: "work-2",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "manager_update",
+      body: "Studio is booked for Friday at 10 AM. Sam will handle the shoot.",
+      visibility: "client",
+      publishedAt: "2h ago",
+      createdAt: "2h ago",
+    }),
+    seed({
+      id: "upd-2",
+      activityId: "work-1",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "manager_update",
+      body: "First internal draft was shared with the team yesterday.",
+      visibility: "manager",
+      createdAt: "Yesterday",
+    }),
+    seed({
+      id: "upd-1",
+      activityId: "work-1",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "manager_update",
+      body: "Homepage is ready — please review when you can. Alex has incorporated the brand colors we discussed.",
+      visibility: "client",
+      publishedAt: "Today",
+      createdAt: "Today",
+    }),
+    seed({
+      id: "feed-3",
+      activityId: "work-3",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "feed_highlight",
+      body: "Launch week content lined up",
+      visibility: "client",
+      publishedAt: "Mon",
+      feedTitle: "3 social posts scheduled",
+      feedSubtitle: "Launch week content lined up",
+      icon: "📱",
+      createdAt: "Mon",
+    }),
+    seed({
+      id: "feed-2",
+      activityId: "work-1",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "feed_highlight",
+      body: "Tap to view and leave feedback",
+      visibility: "client",
+      publishedAt: "Yesterday",
+      feedTitle: "Homepage ready for your review",
+      feedSubtitle: "Tap to view and leave feedback",
+      icon: "🌐",
+      createdAt: "Yesterday",
+    }),
+    seed({
+      id: "feed-1",
+      activityId: "work-2",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "feed_highlight",
+      body: "Friday, 10 AM at Studio B",
+      visibility: "client",
+      publishedAt: "2h ago",
+      feedTitle: "Shoot day confirmed",
+      feedSubtitle: "Friday, 10 AM at Studio B",
+      icon: "📸",
+      createdAt: "2h ago",
+    }),
+    seed({
+      id: "cmt-1",
+      activityId: "work-1",
+      authorId: demoClient.id,
+      authorName: "You",
+      authorRole: "client",
+      type: "client_note",
+      body: "Can we make the hero image larger?",
+      visibility: "manager",
+      createdAt: "Yesterday",
+    }),
+    seed({
+      id: "cmt-2",
+      activityId: "work-1",
+      authorId: demoManager.id,
+      authorName: "Priya (Manager)",
+      authorRole: "manager",
+      type: "manager_reply",
+      body: "Got it — passing this to Alex. Will update you soon.",
+      visibility: "client",
+      publishedAt: "Today",
+      createdAt: "Today",
+    }),
+    seed({
+      id: "team-qu-1",
+      activityId: "work-1",
+      authorId: demoTeamMember.id,
+      authorName: "Alex Kumar",
+      authorRole: "team",
+      type: "team_quick_update",
+      body: "Hero section resized per client feedback — mockup ready for manager review.",
+      visibility: "manager",
+      createdAt: "Today",
+    }),
+    seed({
+      id: "team-qu-2",
+      activityId: "work-4",
+      authorId: demoTeamMember.id,
+      authorName: "Alex Kumar",
+      authorRole: "team",
+      type: "team_quick_update",
+      body: "Brand guidelines draft at 70% — color section complete.",
+      visibility: "manager",
+      createdAt: "2h ago",
+    }),
+  ];
+
+  return updates.sort((a, b) => b.sortKey - a.sortKey);
+}
