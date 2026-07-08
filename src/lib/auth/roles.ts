@@ -1,6 +1,6 @@
 import type { UserRole } from "@/lib/types";
 
-export type DbRole = UserRole | "admin";
+export type DbRole = UserRole | "admin" | "unassigned";
 
 export function routeForRole(role: string | undefined | null): string {
   switch (role) {
@@ -10,12 +10,15 @@ export function routeForRole(role: string | undefined | null): string {
     case "team":
       return "/team/work";
     case "client":
-    default:
       return "/client";
+    case "unassigned":
+    default:
+      return "/waiting";
   }
 }
 
-export function portalForPath(path: string): UserRole | null {
+export function portalForPath(path: string): UserRole | "waiting" | null {
+  if (path.startsWith("/waiting")) return "waiting";
   if (path.startsWith("/client")) return "client";
   if (path.startsWith("/manager")) return "manager";
   if (path.startsWith("/team")) return "team";
@@ -38,7 +41,9 @@ export function roleCanAccessPath(
       return portal === "team";
     case "client":
       return portal === "client";
+    case "unassigned":
+      return portal === "waiting";
     default:
-      return false;
+      return portal === "waiting";
   }
 }

@@ -436,27 +436,19 @@ export async function getTeamProject(): Promise<{
   const profile = await getCurrentProfile();
   if (!profile || profile.role !== "team") return null;
 
-  const { data: assignment } = await supabase
-    .from("work_item_assignments")
-    .select("work_item_id")
+  const { data: membership } = await supabase
+    .from("project_team_members")
+    .select("project_id")
     .eq("user_id", profile.id)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (!assignment) return null;
-
-  const { data: workItem } = await supabase
-    .from("work_items")
-    .select("project_id")
-    .eq("id", assignment.work_item_id)
-    .single();
-
-  if (!workItem) return null;
+  if (!membership) return null;
 
   const { data: project } = await supabase
     .from("projects")
     .select("id, name, manager_id")
-    .eq("id", workItem.project_id)
+    .eq("id", membership.project_id)
     .single();
 
   if (!project) return null;
@@ -477,20 +469,22 @@ export async function getTeamProject(): Promise<{
 export async function getTeamWorkItems(): Promise<WorkItem[]> {
   const supabase = await createClient();
   const profile = await getCurrentProfile();
-  if (!profile) return [];
+  if (!profile || profile.role !== "team") return [];
 
-  const { data } = await supabase
-    .from("work_item_assignments")
-    .select("work_item_id")
-    .eq("user_id", profile.id);
+  const { data: membership } = await supabase
+    .from("project_team_members")
+    .select("project_id")
+    .eq("user_id", profile.id)
+    .limit(1)
+    .maybeSingle();
 
-  const workItemIds = (data ?? []).map((d) => d.work_item_id);
-  if (!workItemIds.length) return [];
+  if (!membership) return [];
 
   const { data: workItems } = await supabase
     .from("work_items")
     .select("id, title, description, outcome_description, status, due_label, preview_url")
-    .in("id", workItemIds);
+    .eq("project_id", membership.project_id)
+    .order("sort_order");
 
   return (workItems ?? []).map((wi) => ({
     id: wi.id,
@@ -507,6 +501,117 @@ export async function getTeamWorkItems(): Promise<WorkItem[]> {
     commentCount: 0,
     dueLabel: wi.due_label ?? undefined,
   }));
+}
+
+export type UnassignedUser = {
+  id: string;
+  email: string;
+  fullName: string;
+};
+
+export async function getUnassignedUsers(): Promise<UnassignedUser[]> {
+  const supabase = await createClient();
+  const profile = await getCurrentProfile();
+  if (!profile || (profile.role !== "manager" && profile.role !== "admin")) {
+    return [];
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    "get_unassigned_users",
+  );
+
+  if (!rpcError && rpcData) {
+    return (rpcData as { id: string; email: string; full_name: string }[]).map(
+      (row) => ({
+        id: row.id,
+        email: row.email,
+        fullName: row.full_name,
+      }),
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, email, full_name")
+    .eq("role", "unassigned")
+    .order("full_name")
+    .order("email");
+
+  if (error || !data) return [];
+
+  return data.map((row) => ({
+    id: row.id,
+    email: row.email,
+    fullName: row.full_name,
+  }));
+}
+
+export type ManagerProjectOption = {
+  id: string;
+  label: string;
+};
+
+export async function getManagerProjectsForSelect(): Promise<
+  ManagerProjectOption[]
+> {
+  const tabs = await getManagerProjectTabs();
+  return tabs.map((tab) => ({
+    id: tab.id,
+    label: `${tab.projectName} (${tab.clientName})`,
+  }));
+}
+
+export type ProjectTeamMember = {
+  userId: string;
+  email: string;
+  fullName: string;
+  designation: string | null;
+};
+
+export type ProjectTeamRoster = {
+  projectId: string;
+  projectLabel: string;
+  members: ProjectTeamMember[];
+};
+
+export async function getManagerProjectTeamRosters(): Promise<
+  ProjectTeamRoster[]
+> {
+  const supabase = await createClient();
+  const projects = await getManagerProjectsForSelect();
+
+  const rosters = await Promise.all(
+    projects.map(async (project) => {
+      const { data, error } = await supabase.rpc("get_manager_project_team", {
+        p_project_id: project.id,
+      });
+
+      const members: ProjectTeamMember[] =
+        error || !data
+          ? []
+          : (
+              data as {
+                user_id: string;
+                email: string;
+                full_name: string;
+                designation: string | null;
+              }[]
+            ).map((row) => ({
+              userId: row.user_id,
+              email: row.email,
+              fullName: row.full_name,
+              designation: row.designation,
+            }));
+
+      return {
+        projectId: project.id,
+        projectLabel: project.label,
+        members,
+      };
+    }),
+  );
+
+  return rosters;
 }
 
 export async function getConversation(

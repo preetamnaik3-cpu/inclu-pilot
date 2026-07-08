@@ -1,5 +1,6 @@
 import { TeamChatMock } from "@/app/team/team-chat-mock";
 import { RealtimeChat } from "@/components/realtime-chat";
+import { WaitingPageClient } from "@/components/waiting-page";
 import { isSupabaseConfigured } from "@/lib/config";
 import {
   getConversation,
@@ -15,10 +16,9 @@ export default async function TeamChatPage() {
 
   const profile = await getCurrentProfile();
   const teamProject = await getTeamProject();
+
   if (!profile || !teamProject) {
-    return (
-      <div className="px-4 pt-6 text-center text-gray-500">Chat unavailable.</div>
-    );
+    return <WaitingPageClient email={profile?.email ?? null} />;
   }
 
   const conversation = await getConversation(

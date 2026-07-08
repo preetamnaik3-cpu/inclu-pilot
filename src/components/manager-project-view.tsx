@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { StatusPill } from "@/components/status-pill";
 import {
@@ -25,6 +26,7 @@ export function ManagerProjectView({
   clientCommentCounts: Record<string, number>;
   live?: boolean;
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("work");
   const [newTitle, setNewTitle] = useState("");
   const [updateTitle, setUpdateTitle] = useState("");
@@ -33,25 +35,38 @@ export function ManagerProjectView({
 
   async function handleStatusChange(workItemId: string, status: WorkStatus) {
     if (!live) return;
-    await updateWorkItemStatus(workItemId, status);
+    const result = await updateWorkItemStatus(workItemId, status);
+    if (!result || !("error" in result) || !result.error) {
+      router.refresh();
+    }
   }
 
   async function handleAddWorkItem() {
     if (!live || !newTitle.trim()) return;
-    await createWorkItem(projectId, newTitle.trim(), managerId);
-    setNewTitle("");
+    const result = await createWorkItem(
+      projectId,
+      newTitle.trim(),
+      managerId,
+    );
+    if (!result || !("error" in result) || !result.error) {
+      setNewTitle("");
+      router.refresh();
+    }
   }
 
   async function handlePublish() {
     if (!live || !updateTitle.trim()) return;
-    await publishActivityUpdate(
+    const result = await publishActivityUpdate(
       projectId,
       updateTitle.trim(),
       updateSubtitle.trim(),
       visibleToClient,
     );
-    setUpdateTitle("");
-    setUpdateSubtitle("");
+    if (!result || !("error" in result) || !result.error) {
+      setUpdateTitle("");
+      setUpdateSubtitle("");
+      router.refresh();
+    }
   }
 
   return (

@@ -1,4 +1,5 @@
 import { ClientChatMock } from "@/app/client/client-chat-mock";
+import { ConversationReadMarker } from "@/components/conversation-read-marker";
 import { RealtimeChat } from "@/components/realtime-chat";
 import { isSupabaseConfigured } from "@/lib/config";
 import {
@@ -34,6 +35,7 @@ export default async function ClientChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-5rem)] flex-col">
+      <ConversationReadMarker conversationId={conversation.id} />
       <RealtimeChat
         conversationId={conversation.id}
         currentUserId={profile.id}

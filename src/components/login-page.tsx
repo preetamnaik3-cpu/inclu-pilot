@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
 import { useMock } from "@/components/mock-provider";
 import { signIn } from "@/lib/actions/auth";
+import { createClient } from "@/lib/supabase/client";
 import type { UserRole } from "@/lib/types";
 
 const roleRoutes: Record<UserRole, string> = {
@@ -22,10 +23,32 @@ export function LoginPageClient({ supabaseEnabled }: LoginPageProps) {
   const { setRole } = useMock();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   function enterAs(role: UserRole) {
     setRole(role);
     router.push(roleRoutes[role]);
+  }
+
+  async function handleGoogleSignIn() {
+    setGoogleLoading(true);
+    setError(null);
+
+    const supabase = createClient();
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          prompt: "select_account",
+        },
+      },
+    });
+
+    if (oauthError) {
+      setError(oauthError.message);
+      setGoogleLoading(false);
+    }
   }
 
   async function handleSignIn(e: React.FormEvent<HTMLFormElement>) {
@@ -49,6 +72,22 @@ export function LoginPageClient({ supabaseEnabled }: LoginPageProps) {
 
         {supabaseEnabled ? (
           <>
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={googleLoading || loading}
+              className="mb-4 flex w-full items-center justify-center gap-3 rounded-full border border-stone-200 bg-white px-4 py-3.5 text-sm font-semibold text-stone-800 shadow-sm transition-colors hover:bg-stone-50 disabled:opacity-60"
+            >
+              <span className="text-base">G</span>
+              {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
+            </button>
+
+            <div className="mb-4 flex items-center gap-3">
+              <div className="h-px flex-1 bg-stone-200" />
+              <span className="text-xs text-stone-400">or email</span>
+              <div className="h-px flex-1 bg-stone-200" />
+            </div>
+
             <form onSubmit={handleSignIn} className="space-y-3">
               <input
                 name="email"
@@ -76,7 +115,8 @@ export function LoginPageClient({ supabaseEnabled }: LoginPageProps) {
               </button>
             </form>
             <p className="mt-6 text-center text-xs text-stone-400">
-              Use demo accounts from README after running seed
+              Sign in with Google, then wait for your manager to assign you to a
+              project.
             </p>
           </>
         ) : (

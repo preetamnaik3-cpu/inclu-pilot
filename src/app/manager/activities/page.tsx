@@ -1,10 +1,11 @@
 import { ManagerActivitiesMock } from "@/app/manager/manager-activities-mock";
+import { ManagerActivitiesLiveList } from "@/app/manager/manager-activities-live";
+import { ManagerActivitiesFeedLive } from "@/app/manager/manager-activities-feed-live";
 import { ManagerProjectHeader } from "@/components/manager-project-header";
-import { ManagerActivitiesListView } from "@/components/manager-activities-list-view";
 import { AuthHeaderAction } from "@/components/auth-header-action";
 import { PageHeader } from "@/components/client-page-header";
 import { isSupabaseConfigured } from "@/lib/config";
-import { getClientProject, getManagerProjectTabs } from "@/lib/queries";
+import { getClientProject, getCurrentProfile, getManagerProjectTabs } from "@/lib/queries";
 import { getHubUpdatesForProject } from "@/lib/updates/queries";
 import { countClientNotesAwaitingReply } from "@/lib/updates/selectors";
 import Link from "next/link";
@@ -19,12 +20,15 @@ export default async function ManagerActivitiesPage({
   }
 
   const { project: projectParam } = await searchParams;
-  const clients = await getManagerProjectTabs();
+  const [clients, profile] = await Promise.all([
+    getManagerProjectTabs(),
+    getCurrentProfile(),
+  ]);
   const project = await getClientProject(
     projectParam ?? clients[0]?.id,
   );
 
-  if (!project) {
+  if (!project || !profile) {
     return (
       <div className="px-4 pt-6 text-center text-stone-500">No project found.</div>
     );
@@ -64,11 +68,13 @@ export default async function ManagerActivitiesPage({
       ) : null}
 
       <ManagerProjectHeader project={project} />
-      <ManagerActivitiesListView
+      <ManagerActivitiesLiveList
         items={project.workItems}
         commentCounts={clientNoteCounts}
         projectId={project.id}
+        managerId={profile.id}
       />
+      <ManagerActivitiesFeedLive projectId={project.id} />
     </div>
   );
 }

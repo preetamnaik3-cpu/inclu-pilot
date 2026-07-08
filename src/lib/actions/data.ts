@@ -289,11 +289,17 @@ export async function createWorkItem(
   projectId: string,
   title: string,
   managerId: string,
+  outcome?: string,
 ) {
   const supabase = await createClient();
+  const trimmedTitle = title.trim();
+  const trimmedOutcome = outcome?.trim();
+  if (!trimmedTitle) return { error: "Title is required" };
+
   const { error } = await supabase.from("work_items").insert({
     project_id: projectId,
-    title,
+    title: trimmedTitle,
+    outcome_description: trimmedOutcome || null,
     created_by: managerId,
     status: "planned",
   });

@@ -1,6 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { roleCanAccessPath, routeForRole } from "@/lib/auth/roles";
+import {
+  clientHasProject,
+  resolvePostAuthRedirect,
+  teamHasProject,
+} from "@/lib/auth/onboarding";
+import { roleCanAccessPath } from "@/lib/auth/roles";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -34,7 +39,9 @@ export async function updateSession(request: NextRequest) {
   const isProtected =
     path.startsWith("/client") ||
     path.startsWith("/manager") ||
-    path.startsWith("/team");
+    path.startsWith("/team") ||
+    path.startsWith("/waiting") ||
+    path.startsWith("/onboarding");
 
   if (!user && isProtected) {
     const url = request.nextUrl.clone();
@@ -42,7 +49,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isProtected) {
+  if (user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
@@ -50,24 +57,46 @@ export async function updateSession(request: NextRequest) {
       .single();
 
     const role = profile?.role;
+    const destination = await resolvePostAuthRedirect(supabase, user.id);
 
-    if (!roleCanAccessPath(role, path)) {
+    if (path.startsWith("/onboarding")) {
       const url = request.nextUrl.clone();
-      url.pathname = routeForRole(role);
+      url.pathname = destination;
       return NextResponse.redirect(url);
     }
-  }
 
-  if (user && path === "/") {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
+    if (
+      (role === "unassigned" ||
+        (role === "client" && !(await clientHasProject(supabase, user.id))) ||
+        (role === "team" && !(await teamHasProject(supabase, user.id)))) &&
+      (path.startsWith("/client") ||
+        path.startsWith("/team") ||
+        path === "/")
+    ) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/waiting";
+      return NextResponse.redirect(url);
+    }
 
-    const url = request.nextUrl.clone();
-    url.pathname = routeForRole(profile?.role);
-    return NextResponse.redirect(url);
+    if (isProtected && path !== "/waiting") {
+      if (!roleCanAccessPath(role, path)) {
+        const url = request.nextUrl.clone();
+        url.pathname = destination;
+        return NextResponse.redirect(url);
+      }
+    }
+
+    if (path === "/waiting" && destination !== "/waiting") {
+      const url = request.nextUrl.clone();
+      url.pathname = destination;
+      return NextResponse.redirect(url);
+    }
+
+    if (user && path === "/") {
+      const url = request.nextUrl.clone();
+      url.pathname = destination;
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;

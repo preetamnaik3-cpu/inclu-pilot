@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { routeForRole } from "@/lib/auth/roles";
+import { resolvePostAuthRedirect } from "@/lib/auth/onboarding";
 import { createClient } from "@/lib/supabase/server";
 
 export async function signIn(formData: FormData) {
@@ -23,13 +23,8 @@ export async function signIn(formData: FormData) {
     return { error: "Sign in failed" };
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  redirect(routeForRole(profile?.role));
+  const destination = await resolvePostAuthRedirect(supabase, user.id);
+  redirect(destination);
 }
 
 export async function signOut() {

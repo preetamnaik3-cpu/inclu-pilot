@@ -8,15 +8,23 @@ import type { ClientNotification } from "@/lib/types";
 export function NotificationBell({
   notifications,
   live = false,
+  onMarkRead,
 }: {
   notifications: ClientNotification[];
   live?: boolean;
+  onMarkRead?: (notificationKey: string) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const unread = notifications.filter((n) => !n.read).length;
 
   function handleOpen(notification: ClientNotification) {
     if (!live || notification.read) return;
+
+    if (onMarkRead) {
+      onMarkRead(notification.id);
+      return;
+    }
+
     startTransition(() => {
       void markNotificationRead(notification.id);
     });

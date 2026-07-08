@@ -1,3 +1,4 @@
+import { LiveNotificationBell } from "@/components/live-notification-bell";
 import { NotificationBell } from "@/components/notification-bell";
 import {
   activitySummary,
@@ -34,7 +35,14 @@ export function ClientWelcomeHeader({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <NotificationBell notifications={notifications} live={liveNotifications} />
+          {liveNotifications ? (
+            <LiveNotificationBell
+              initialNotifications={notifications}
+              projectId={project.id}
+            />
+          ) : (
+            <NotificationBell notifications={notifications} />
+          )}
           {headerAction}
         </div>
       </div>

@@ -1,22 +1,29 @@
 import { TeamWorkMock } from "@/app/team/team-work-mock";
+import { TeamWorkLive } from "@/app/team/team-work-live";
 import { AuthHeaderAction } from "@/components/auth-header-action";
-import { TeamWorkView } from "@/components/team-work-view";
+import { WaitingPageClient } from "@/components/waiting-page";
 import { isSupabaseConfigured } from "@/lib/config";
-import { getTeamProject, getTeamWorkItems } from "@/lib/queries";
+import { getCurrentProfile, getTeamProject, getTeamWorkItems } from "@/lib/queries";
 
 export default async function TeamWorkPage() {
   if (!isSupabaseConfigured()) {
     return <TeamWorkMock />;
   }
 
-  const items = await getTeamWorkItems();
-  const teamProject = await getTeamProject();
+  const [profile, teamProject, items] = await Promise.all([
+    getCurrentProfile(),
+    getTeamProject(),
+    getTeamWorkItems(),
+  ]);
+
+  if (!teamProject) {
+    return <WaitingPageClient email={profile?.email ?? null} />;
+  }
 
   return (
-    <TeamWorkView
+    <TeamWorkLive
       items={items}
-      projectName={teamProject?.projectName ?? "Your project"}
-      live
+      projectName={teamProject.projectName}
       headerAction={<AuthHeaderAction />}
     />
   );

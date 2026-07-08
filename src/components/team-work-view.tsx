@@ -26,21 +26,45 @@ export function TeamWorkView({
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [sentFor, setSentFor] = useState<string | null>(null);
+  const [sendingFor, setSendingFor] = useState<string | null>(null);
+  const [errorFor, setErrorFor] = useState<Record<string, string>>({});
 
   async function handleSendUpdate(activityId: string) {
     const trimmed = (drafts[activityId] ?? "").trim();
-    if (!trimmed) return;
+    if (!trimmed || sendingFor) return;
 
     if (onQuickUpdate) {
-      onQuickUpdate(activityId, trimmed);
-      setDrafts((prev) => ({ ...prev, [activityId]: "" }));
-      setSentFor(activityId);
-      setTimeout(() => setSentFor(null), 2000);
+      setSendingFor(activityId);
+      setErrorFor((prev) => {
+        const next = { ...prev };
+        delete next[activityId];
+        return next;
+      });
+      try {
+        await onQuickUpdate(activityId, trimmed);
+        setDrafts((prev) => ({ ...prev, [activityId]: "" }));
+        setSentFor(activityId);
+        setTimeout(() => setSentFor(null), 2000);
+      } catch (error) {
+        setErrorFor((prev) => ({
+          ...prev,
+          [activityId]:
+            error instanceof Error ? error.message : "Failed to send update",
+        }));
+      } finally {
+        setSendingFor(null);
+      }
       return;
     }
 
     if (live && conversationId) {
-      await sendMessage(conversationId, trimmed);
+      setSendingFor(activityId);
+      const result = await sendMessage(conversationId, trimmed);
+      setSendingFor(null);
+      if (result?.error) {
+        setErrorFor((prev) => ({ ...prev, [activityId]: result.error! }));
+        return;
+      }
       setDrafts((prev) => ({ ...prev, [activityId]: "" }));
       setSentFor(activityId);
       setTimeout(() => setSentFor(null), 2000);
@@ -87,12 +111,20 @@ export function TeamWorkView({
                 placeholder="e.g. Draft ready for manager review..."
                 className="input-field mt-2 w-full px-3 py-2 text-sm"
               />
+              {errorFor[item.id] ? (
+                <p className="mt-2 text-xs text-red-600">{errorFor[item.id]}</p>
+              ) : null}
               <button
                 type="button"
                 onClick={() => handleSendUpdate(item.id)}
-                className="btn-primary mt-2 w-full py-2 text-sm"
+                disabled={sendingFor === item.id}
+                className="btn-primary mt-2 w-full py-2 text-sm disabled:opacity-60"
               >
-                {sentFor === item.id ? "Sent ✓" : "Send to manager"}
+                {sentFor === item.id
+                  ? "Sent ✓"
+                  : sendingFor === item.id
+                    ? "Sending..."
+                    : "Send to manager"}
               </button>
             </div>
           </div>

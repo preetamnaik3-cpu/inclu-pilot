@@ -15,7 +15,7 @@ export type Database = {
           email: string;
           full_name: string;
           designation: string | null;
-          role: "client" | "manager" | "team" | "admin";
+          role: "client" | "manager" | "team" | "admin" | "unassigned";
           created_at: string;
         };
         Insert: {
@@ -23,14 +23,48 @@ export type Database = {
           email: string;
           full_name: string;
           designation?: string | null;
-          role?: "client" | "manager" | "team" | "admin";
+          role?: "client" | "manager" | "team" | "admin" | "unassigned";
           created_at?: string;
         };
         Update: {
           email?: string;
           full_name?: string;
           designation?: string | null;
-          role?: "client" | "manager" | "team" | "admin";
+          role?: "client" | "manager" | "team" | "admin" | "unassigned";
+        };
+        Relationships: [];
+      };
+      platform_config: {
+        Row: {
+          key: string;
+          value: string;
+          updated_at: string;
+        };
+        Insert: {
+          key: string;
+          value: string;
+          updated_at?: string;
+        };
+        Update: {
+          value?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      project_team_members: {
+        Row: {
+          project_id: string;
+          user_id: string;
+          created_at: string;
+        };
+        Insert: {
+          project_id: string;
+          user_id: string;
+          created_at?: string;
+        };
+        Update: {
+          project_id?: string;
+          user_id?: string;
         };
         Relationships: [];
       };
@@ -193,7 +227,7 @@ export type Database = {
       };
     };
     Enums: {
-      user_role: "client" | "manager" | "team" | "admin";
+      user_role: "client" | "manager" | "team" | "admin" | "unassigned";
       work_status: "planned" | "in_progress" | "in_review" | "done";
       project_status: "active" | "paused" | "completed";
       conversation_type: "client_manager" | "internal_team";
