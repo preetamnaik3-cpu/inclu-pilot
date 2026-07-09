@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { signStoragePath } from "@/lib/storage/signed-url";
 import type { HubUpdate, UpdateType, UpdateVisibility, UserRole } from "@/lib/types";
 
 type HubUpdateRow = {
@@ -84,8 +85,27 @@ async function attachAuthorNames(rows: HubUpdateRow[]): Promise<HubUpdate[]> {
     (authors ?? []).map((a) => [a.id, a.full_name]),
   );
 
-  return rows.map((row) =>
+  const updates = rows.map((row) =>
     mapRow(row, authorMap[row.author_id ?? ""] ?? "User"),
+  );
+
+  return Promise.all(
+    updates.map(async (update) => {
+      if (!update.metadata?.fileUrl) return update;
+      const signedUrl = await signStoragePath(
+        supabase,
+        "activity-files",
+        update.metadata.fileUrl,
+      );
+      if (!signedUrl) return update;
+      return {
+        ...update,
+        metadata: {
+          ...update.metadata,
+          fileUrl: signedUrl,
+        },
+      };
+    }),
   );
 }
 

@@ -1,13 +1,22 @@
-import { type NextRequest } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function middleware(request: NextRequest) {
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ) {
+  const supabaseConfigured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  );
+
+  if (!supabaseConfigured) {
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json(
+        { error: "Service misconfigured" },
+        { status: 503 },
+      );
+    }
     return;
   }
+
   return updateSession(request);
 }
 

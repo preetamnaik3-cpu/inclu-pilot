@@ -65,6 +65,17 @@ export function RealtimeChat({
             attachment_mime_type?: string | null;
           };
 
+          const attachment = mapAttachment(row);
+          let signedAttachment = attachment;
+          if (attachment?.url && !attachment.url.startsWith("http")) {
+            const { data: signed } = await supabase.storage
+              .from("chat-attachments")
+              .createSignedUrl(attachment.url, 60 * 60);
+            if (signed?.signedUrl) {
+              signedAttachment = { ...attachment, url: signed.signedUrl };
+            }
+          }
+
           setMessages((prev) => {
             if (prev.some((m) => m.id === row.id)) return prev;
 
@@ -80,7 +91,7 @@ export function RealtimeChat({
                   minute: "2-digit",
                 }),
                 isOwn: row.sender_id === currentUserId,
-                attachment: mapAttachment(row),
+                attachment: signedAttachment,
               },
             ];
           });

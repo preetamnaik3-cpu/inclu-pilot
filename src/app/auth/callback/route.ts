@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { resolvePostAuthRedirect } from "@/lib/auth/onboarding";
+import { safeRelativePath } from "@/lib/auth/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next");
+  const next = safeRelativePath(searchParams.get("next"));
 
   if (code) {
     const supabase = await createClient();
@@ -18,9 +19,7 @@ export async function GET(request: Request) {
 
       if (user) {
         const destination =
-          next && next.startsWith("/")
-            ? next
-            : await resolvePostAuthRedirect(supabase, user.id);
+          next ?? (await resolvePostAuthRedirect(supabase, user.id));
         return NextResponse.redirect(`${origin}${destination}`);
       }
     }

@@ -1,18 +1,25 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { requireRole, requireUser } from "@/lib/auth/guards";
+import {
+  getAttachmentKindFromFile,
+  validateChatFile,
+} from "@/lib/chat-attachments";
 import { insertHubUpdate, publishHubUpdate } from "@/lib/updates/actions";
 import type { WorkStatus } from "@/lib/types";
 
-export async function addWorkComment(workItemId: string, body: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+function hubAuthorRole(role: string): "client" | "manager" | "team" {
+  if (role === "client") return "client";
+  if (role === "team") return "team";
+  return "manager";
+}
 
-  const { data: workItem } = await supabase
+export async function addWorkComment(workItemId: string, body: string) {
+  const auth = await requireRole(["client"]);
+  if (!auth.ok) return { error: auth.error };
+
+  const { data: workItem } = await auth.supabase
     .from("work_items")
     .select("project_id")
     .eq("id", workItemId)
@@ -23,7 +30,7 @@ export async function addWorkComment(workItemId: string, body: string) {
   const result = await insertHubUpdate({
     projectId: workItem.project_id,
     activityId: workItemId,
-    authorId: user.id,
+    authorId: auth.user.id,
     authorRole: "client",
     type: "client_note",
     body,
@@ -45,13 +52,10 @@ export async function addManagerCommentReply(
   workItemId: string,
   body: string,
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+  const auth = await requireRole(["manager", "admin"]);
+  if (!auth.ok) return { error: auth.error };
 
-  const { data: workItem } = await supabase
+  const { data: workItem } = await auth.supabase
     .from("work_items")
     .select("project_id")
     .eq("id", workItemId)
@@ -62,7 +66,7 @@ export async function addManagerCommentReply(
   const result = await insertHubUpdate({
     projectId: workItem.project_id,
     activityId: workItemId,
-    authorId: user.id,
+    authorId: auth.user.id,
     authorRole: "manager",
     type: "manager_reply",
     body,
@@ -85,11 +89,8 @@ export async function sendMessage(
   body: string,
   file?: File,
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+  const auth = await requireUser();
+  if (!auth.ok) return { error: auth.error };
 
   const trimmed = body.trim();
   if (!trimmed && !file) return { error: "Message cannot be empty" };
@@ -100,19 +101,18 @@ export async function sendMessage(
   let attachmentMimeType: string | null = null;
 
   if (file && file.size > 0) {
+    const validationError = validateChatFile(file);
+    if (validationError) return { error: validationError };
+
     const safeName = file.name.replace(/[^\w.\-() ]/g, "_");
     const path = `${conversationId}/${Date.now()}-${safeName}`;
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await auth.supabase.storage
       .from("chat-attachments")
       .upload(path, file, { contentType: file.type, upsert: false });
 
     if (uploadError) return { error: uploadError.message };
 
-    const { data: publicData } = supabase.storage
-      .from("chat-attachments")
-      .getPublicUrl(path);
-
-    attachmentUrl = publicData.publicUrl;
+    attachmentUrl = path;
     attachmentName = file.name;
     attachmentMimeType = file.type || null;
     attachmentKind = file.type.startsWith("image/")
@@ -122,9 +122,9 @@ export async function sendMessage(
         : "file";
   }
 
-  const { error } = await supabase.from("messages").insert({
+  const { error } = await auth.supabase.from("messages").insert({
     conversation_id: conversationId,
-    sender_id: user.id,
+    sender_id: auth.user.id,
     body: trimmed,
     attachment_url: attachmentUrl,
     attachment_name: attachmentName,
@@ -140,8 +140,10 @@ export async function updateWorkItemStatus(
   workItemId: string,
   status: WorkStatus,
 ) {
-  const supabase = await createClient();
-  const { error } = await supabase
+  const auth = await requireRole(["manager", "admin", "team"]);
+  if (!auth.ok) return { error: auth.error };
+
+  const { error } = await auth.supabase
     .from("work_items")
     .update({ status })
     .eq("id", workItemId);
@@ -151,6 +153,7 @@ export async function updateWorkItemStatus(
   revalidatePath("/manager/project");
   revalidatePath(`/manager/activities/${workItemId}`);
   revalidatePath("/client/activities");
+  revalidatePath("/team/work");
   return { success: true };
 }
 
@@ -161,16 +164,13 @@ export async function publishActivityUpdate(
   visibleToClient: boolean,
   workItemId?: string,
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+  const auth = await requireRole(["manager", "admin"]);
+  if (!auth.ok) return { error: auth.error };
 
   const result = await insertHubUpdate({
     projectId,
     activityId: workItemId,
-    authorId: user.id,
+    authorId: auth.user.id,
     authorRole: "manager",
     type: visibleToClient ? "feed_highlight" : "manager_update",
     body: subtitle || title,
@@ -201,13 +201,10 @@ export async function postActivityUpdateForWorkItem(
   const trimmed = body.trim();
   if (!trimmed) return { error: "Update cannot be empty" };
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+  const auth = await requireRole(["manager", "admin"]);
+  if (!auth.ok) return { error: auth.error };
 
-  const { data: workItem } = await supabase
+  const { data: workItem } = await auth.supabase
     .from("work_items")
     .select("title")
     .eq("id", workItemId)
@@ -218,7 +215,7 @@ export async function postActivityUpdateForWorkItem(
   const result = await insertHubUpdate({
     projectId,
     activityId: workItemId,
-    authorId: user.id,
+    authorId: auth.user.id,
     authorRole: "manager",
     type: "manager_update",
     body: trimmed,
@@ -237,7 +234,13 @@ export async function postActivityUpdateForWorkItem(
   return { success: true };
 }
 
-export async function publishTeamQuickUpdate(updateId: string, activityId: string) {
+export async function publishTeamQuickUpdate(
+  updateId: string,
+  activityId: string,
+) {
+  const auth = await requireRole(["manager", "admin"]);
+  if (!auth.ok) return { error: auth.error };
+
   const result = await publishHubUpdate(updateId);
   if (result.error) return result;
 
@@ -253,13 +256,10 @@ export async function postTeamQuickUpdate(activityId: string, body: string) {
   const trimmed = body.trim();
   if (!trimmed) return { error: "Update cannot be empty" };
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+  const auth = await requireRole(["team"]);
+  if (!auth.ok) return { error: auth.error };
 
-  const { data: workItem } = await supabase
+  const { data: workItem } = await auth.supabase
     .from("work_items")
     .select("project_id")
     .eq("id", activityId)
@@ -270,8 +270,8 @@ export async function postTeamQuickUpdate(activityId: string, body: string) {
   const result = await insertHubUpdate({
     projectId: workItem.project_id,
     activityId,
-    authorId: user.id,
-    authorRole: "team",
+    authorId: auth.user.id,
+    authorRole: hubAuthorRole(auth.role),
     type: "team_quick_update",
     body: trimmed,
     visibility: "manager",
@@ -288,19 +288,21 @@ export async function postTeamQuickUpdate(activityId: string, body: string) {
 export async function createWorkItem(
   projectId: string,
   title: string,
-  managerId: string,
+  _managerId: string,
   outcome?: string,
 ) {
-  const supabase = await createClient();
+  const auth = await requireRole(["manager", "admin"]);
+  if (!auth.ok) return { error: auth.error };
+
   const trimmedTitle = title.trim();
   const trimmedOutcome = outcome?.trim();
   if (!trimmedTitle) return { error: "Title is required" };
 
-  const { error } = await supabase.from("work_items").insert({
+  const { error } = await auth.supabase.from("work_items").insert({
     project_id: projectId,
     title: trimmedTitle,
     outcome_description: trimmedOutcome || null,
-    created_by: managerId,
+    created_by: auth.user.id,
     status: "planned",
   });
 
@@ -318,32 +320,27 @@ export async function uploadActivityFile(
   file: File,
   publishToClient = false,
 ) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated" };
+  const auth = await requireRole(["manager", "admin"]);
+  if (!auth.ok) return { error: auth.error };
   if (!file || file.size === 0) return { error: "No file selected" };
 
-  const { getAttachmentKindFromFile } = await import("@/lib/chat-attachments");
+  const validationError = validateChatFile(file);
+  if (validationError) return { error: validationError };
+
   const kind = getAttachmentKindFromFile(file);
   const safeName = file.name.replace(/[^\w.\-() ]/g, "_");
-  const path = `${user.id}/${activityId}/${Date.now()}-${safeName}`;
+  const path = `${auth.user.id}/${activityId}/${Date.now()}-${safeName}`;
 
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await auth.supabase.storage
     .from("activity-files")
     .upload(path, file, { contentType: file.type, upsert: false });
 
   if (uploadError) return { error: uploadError.message };
 
-  const { data: publicData } = supabase.storage
-    .from("activity-files")
-    .getPublicUrl(path);
-
   const result = await insertHubUpdate({
     projectId,
     activityId,
-    authorId: user.id,
+    authorId: auth.user.id,
     authorRole: "manager",
     type: "file_upload",
     body: file.name,
@@ -352,7 +349,7 @@ export async function uploadActivityFile(
     feedSubtitle: file.name,
     icon: "📎",
     metadata: {
-      fileUrl: publicData.publicUrl,
+      fileUrl: path,
       fileName: file.name,
       fileKind: kind,
       mimeType: file.type || undefined,
@@ -372,6 +369,9 @@ export async function uploadActivityFile(
 }
 
 export async function publishActivityFile(updateId: string, activityId: string) {
+  const auth = await requireRole(["manager", "admin"]);
+  if (!auth.ok) return { error: auth.error };
+
   const result = await publishHubUpdate(updateId);
   if (result.error) return result;
 

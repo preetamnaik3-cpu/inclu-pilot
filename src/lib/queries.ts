@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { signStoragePath } from "@/lib/storage/signed-url";
 import type { Database } from "@/lib/database.types";
 import type { ActivityUpdate, ClientNotification, ClientProject, ManagerClientSummary, WorkItem, WorkStatus } from "@/lib/types";
 
@@ -877,23 +878,31 @@ export async function getMessages(conversationId: string, currentUserId: string)
     (senders ?? []).map((s) => [s.id, s.full_name]),
   );
 
-  return (data ?? []).map((m) => ({
-    id: m.id,
-    senderId: m.sender_id,
-    senderName: senderMap[m.sender_id] ?? "User",
-    body: m.body,
-    time: formatTime(m.created_at),
-    isOwn: m.sender_id === currentUserId,
-    attachment:
-      m.attachment_url && m.attachment_name && m.attachment_kind
-        ? {
-            url: m.attachment_url,
-            name: m.attachment_name,
-            kind: m.attachment_kind as "image" | "video" | "file",
-            mimeType: m.attachment_mime_type ?? undefined,
-          }
-        : undefined,
-  }));
+  return Promise.all(
+    (data ?? []).map(async (m) => {
+      const signedAttachmentUrl = m.attachment_url
+        ? await signStoragePath(supabase, "chat-attachments", m.attachment_url)
+        : null;
+
+      return {
+        id: m.id,
+        senderId: m.sender_id,
+        senderName: senderMap[m.sender_id] ?? "User",
+        body: m.body,
+        time: formatTime(m.created_at),
+        isOwn: m.sender_id === currentUserId,
+        attachment:
+          signedAttachmentUrl && m.attachment_name && m.attachment_kind
+            ? {
+                url: signedAttachmentUrl,
+                name: m.attachment_name,
+                kind: m.attachment_kind as "image" | "video" | "file",
+                mimeType: m.attachment_mime_type ?? undefined,
+              }
+            : undefined,
+      };
+    }),
+  );
 }
 
 export async function getClientNotifications(): Promise<ClientNotification[]> {
