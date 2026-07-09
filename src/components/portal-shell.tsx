@@ -2,7 +2,10 @@
 
 import { PoweredByBadge } from "@/components/brand-logo";
 import { BottomNav } from "@/components/bottom-nav";
-import { PortalNavigationProvider } from "@/components/portal-navigation";
+import { PortalNavigationProvider, usePortalNavigation } from "@/components/portal-navigation";
+import { PushSetup } from "@/components/push/push-setup";
+import { ToastProvider, ToastViewport } from "@/components/toast-provider";
+import { useMessageToasts } from "@/hooks/use-message-toasts";
 import {
   useClientUnreadChatCount,
   useManagerUnreadChatCount,
@@ -21,9 +24,12 @@ const managerNavBase = [
   { href: "/manager/chat", label: "Chat", icon: "chat" as const },
 ];
 
-export function ClientPortalShell({ children }: { children: React.ReactNode }) {
+function ClientPortalShellInner({ children }: { children: React.ReactNode }) {
   const unreadChat = useClientUnreadChatCount();
   const live = isSupabaseConfigured();
+  const portalNav = usePortalNavigation();
+
+  useMessageToasts("client");
 
   const items = clientNavBase.map((item) =>
     item.href === "/client/chat" && live && unreadChat > 0
@@ -32,21 +38,40 @@ export function ClientPortalShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <PortalNavigationProvider>
+    <>
+      <ToastViewport onNavigate={(href) => portalNav?.navigate(href)} />
       <div className="mx-auto min-h-screen max-w-lg bg-background pb-28">
+        {live ? (
+          <div className="px-4 pt-4">
+            <PushSetup portal="client" />
+          </div>
+        ) : null}
         {children}
         <div className="fixed bottom-[4.25rem] left-0 right-0 z-40 mx-auto max-w-lg px-4">
           <PoweredByBadge />
         </div>
         <BottomNav items={items} />
       </div>
+    </>
+  );
+}
+
+export function ClientPortalShell({ children }: { children: React.ReactNode }) {
+  return (
+    <PortalNavigationProvider>
+      <ToastProvider>
+        <ClientPortalShellInner>{children}</ClientPortalShellInner>
+      </ToastProvider>
     </PortalNavigationProvider>
   );
 }
 
-export function ManagerPortalShell({ children }: { children: React.ReactNode }) {
+function ManagerPortalShellInner({ children }: { children: React.ReactNode }) {
   const unreadChat = useManagerUnreadChatCount();
   const live = isSupabaseConfigured();
+  const portalNav = usePortalNavigation();
+
+  useMessageToasts("manager");
 
   const items = managerNavBase.map((item) =>
     item.href === "/manager/chat" && live && unreadChat > 0
@@ -55,14 +80,30 @@ export function ManagerPortalShell({ children }: { children: React.ReactNode }) 
   );
 
   return (
-    <PortalNavigationProvider>
+    <>
+      <ToastViewport onNavigate={(href) => portalNav?.navigate(href)} />
       <div className="mx-auto min-h-screen max-w-lg bg-background pb-28">
+        {live ? (
+          <div className="px-4 pt-4">
+            <PushSetup portal="manager" />
+          </div>
+        ) : null}
         {children}
         <div className="fixed bottom-[4.25rem] left-0 right-0 z-40 mx-auto max-w-lg px-4">
           <PoweredByBadge />
         </div>
         <BottomNav items={items} />
       </div>
+    </>
+  );
+}
+
+export function ManagerPortalShell({ children }: { children: React.ReactNode }) {
+  return (
+    <PortalNavigationProvider>
+      <ToastProvider>
+        <ManagerPortalShellInner>{children}</ManagerPortalShellInner>
+      </ToastProvider>
     </PortalNavigationProvider>
   );
 }

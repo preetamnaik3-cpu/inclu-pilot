@@ -12,6 +12,7 @@ const jakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "IncluPilot",
   description: "Internal client project hub — powered by IncluHub",
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: "/incluhub-logo.png",
     apple: "/incluhub-logo.png",

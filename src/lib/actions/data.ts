@@ -122,7 +122,9 @@ export async function sendMessage(
         : "file";
   }
 
-  const { error } = await auth.supabase.from("messages").insert({
+  const { data: inserted, error } = await auth.supabase
+    .from("messages")
+    .insert({
     conversation_id: conversationId,
     sender_id: auth.user.id,
     body: trimmed,
@@ -130,9 +132,27 @@ export async function sendMessage(
     attachment_name: attachmentName,
     attachment_kind: attachmentKind,
     attachment_mime_type: attachmentMimeType,
-  });
+    })
+    .select("id")
+    .single();
 
   if (error) return { error: error.message };
+
+  // Fire-and-forget: enqueue + deliver push notifications via Supabase Edge Function.
+  // If the function/env isn't configured yet, chat still works normally.
+  try {
+    if (inserted?.id) {
+      await auth.supabase.functions.invoke("send-push", {
+        body: {
+          conversationId,
+          message: { id: inserted.id, senderId: auth.user.id, body: trimmed },
+        },
+      });
+    }
+  } catch {
+    // ignore
+  }
+
   return { success: true };
 }
 

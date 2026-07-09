@@ -1,0 +1,23 @@
+{
+  "name": "IncluPilot",
+  "short_name": "IncluPilot",
+  "description": "Internal client project hub — powered by IncluHub",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f4f1",
+  "theme_color": "#722f37",
+  "icons": [
+    {
+      "src": "/incluhub-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/incluhub-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
+
