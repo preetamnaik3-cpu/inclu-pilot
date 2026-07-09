@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { removeRealtimeChannel } from "@/lib/realtime/channel";
 import {
   countManagerUnreadMessages,
   countUnreadMessages,
@@ -44,6 +45,9 @@ export function useClientUnreadChatCount(chatHref = "/client/chat"): number {
     setCount(unread);
   }, [onChatPage]);
 
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -51,20 +55,23 @@ export function useClientUnreadChatCount(chatHref = "/client/chat"): number {
   useEffect(() => {
     let channel: ReturnType<ReturnType<typeof createClient>["channel"]> | null =
       null;
-    let conversationId: string | null = null;
+    let cancelled = false;
 
     async function subscribe() {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
 
-      conversationId = await getClientChatConversationId(supabase, user.id);
-      if (!conversationId) return;
+      const conversationId = await getClientChatConversationId(supabase, user.id);
+      if (!conversationId || cancelled) return;
+
+      const channelName = `unread:client:${conversationId}`;
+      removeRealtimeChannel(supabase, channelName);
 
       channel = supabase
-        .channel(`unread:client:${conversationId}`)
+        .channel(channelName)
         .on(
           "postgres_changes",
           {
@@ -76,7 +83,7 @@ export function useClientUnreadChatCount(chatHref = "/client/chat"): number {
           (payload) => {
             const row = payload.new as { sender_id: string };
             if (row.sender_id !== user.id) {
-              void refresh();
+              void refreshRef.current();
             }
           },
         )
@@ -89,7 +96,7 @@ export function useClientUnreadChatCount(chatHref = "/client/chat"): number {
             filter: `conversation_id=eq.${conversationId}`,
           },
           () => {
-            void refresh();
+            void refreshRef.current();
           },
         )
         .subscribe();
@@ -98,12 +105,13 @@ export function useClientUnreadChatCount(chatHref = "/client/chat"): number {
     void subscribe();
 
     return () => {
+      cancelled = true;
       if (channel) {
         const supabase = createClient();
         void supabase.removeChannel(channel);
       }
     };
-  }, [refresh]);
+  }, [onChatPage]);
 
   return count;
 }
@@ -131,6 +139,9 @@ export function useManagerUnreadChatCount(chatHref = "/manager/chat"): number {
     setCount(unread);
   }, [onChatPage]);
 
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -138,24 +149,27 @@ export function useManagerUnreadChatCount(chatHref = "/manager/chat"): number {
   useEffect(() => {
     let channel: ReturnType<ReturnType<typeof createClient>["channel"]> | null =
       null;
+    let cancelled = false;
 
     async function subscribe() {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
 
       const conversationIds = await getManagerChatConversationIds(
         supabase,
         user.id,
       );
-      if (!conversationIds.length) return;
+      if (!conversationIds.length || cancelled) return;
 
       const tracked = new Set(conversationIds);
+      const channelName = `unread:manager:${user.id}`;
+      removeRealtimeChannel(supabase, channelName);
 
       channel = supabase
-        .channel(`unread:manager:${user.id}`)
+        .channel(channelName)
         .on(
           "postgres_changes",
           {
@@ -172,7 +186,7 @@ export function useManagerUnreadChatCount(chatHref = "/manager/chat"): number {
               tracked.has(row.conversation_id) &&
               row.sender_id !== user.id
             ) {
-              void refresh();
+              void refreshRef.current();
             }
           },
         )
@@ -188,7 +202,7 @@ export function useManagerUnreadChatCount(chatHref = "/manager/chat"): number {
               conversation_id?: string;
             } | null;
             if (row?.conversation_id && tracked.has(row.conversation_id)) {
-              void refresh();
+              void refreshRef.current();
             }
           },
         )
@@ -198,12 +212,13 @@ export function useManagerUnreadChatCount(chatHref = "/manager/chat"): number {
     void subscribe();
 
     return () => {
+      cancelled = true;
       if (channel) {
         const supabase = createClient();
         void supabase.removeChannel(channel);
       }
     };
-  }, [refresh]);
+  }, [onChatPage]);
 
   return count;
 }

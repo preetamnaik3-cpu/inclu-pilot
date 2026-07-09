@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { removeRealtimeChannel } from "@/lib/realtime/channel";
 import { ChatView } from "@/components/chat-view";
 import type { ChatAttachmentKind, ChatMessage, ChatSendPayload } from "@/lib/types";
 import { sendMessage } from "@/lib/actions/data";
@@ -43,8 +44,11 @@ export function RealtimeChat({
 
   useEffect(() => {
     const supabase = createClient();
+    const channelName = `messages:${conversationId}`;
+    removeRealtimeChannel(supabase, channelName);
+
     const channel = supabase
-      .channel(`messages:${conversationId}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         {

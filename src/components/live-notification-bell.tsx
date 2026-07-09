@@ -8,6 +8,7 @@ import {
   notificationKeyForMessage,
 } from "@/lib/notifications/derive";
 import { getClientChatConversationId } from "@/lib/notifications/unread-chat";
+import { removeRealtimeChannel } from "@/lib/realtime/channel";
 import { NotificationBell } from "@/components/notification-bell";
 import type { ClientNotification } from "@/lib/types";
 
@@ -35,23 +36,27 @@ export function LiveNotificationBell({
   }, [initialNotifications]);
 
   useEffect(() => {
-    let conversationId: string | null = null;
     let channel: ReturnType<ReturnType<typeof createClient>["channel"]> | null =
       null;
+    let cancelled = false;
 
     async function subscribe() {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
 
-      conversationId = await getClientChatConversationId(supabase, user.id);
+      const conversationId = await getClientChatConversationId(supabase, user.id);
+      if (cancelled) return;
 
-      channel = supabase.channel(`notifications:client:${user.id}`);
+      const channelName = `notifications:client:${user.id}`;
+      removeRealtimeChannel(supabase, channelName);
+
+      let nextChannel = supabase.channel(channelName);
 
       if (conversationId) {
-        channel = channel.on(
+        nextChannel = nextChannel.on(
           "postgres_changes",
           {
             event: "INSERT",
@@ -91,7 +96,7 @@ export function LiveNotificationBell({
         );
       }
 
-      channel = channel
+      channel = nextChannel
         .on(
           "postgres_changes",
           {
@@ -162,6 +167,7 @@ export function LiveNotificationBell({
     void subscribe();
 
     return () => {
+      cancelled = true;
       if (channel) {
         const supabase = createClient();
         void supabase.removeChannel(channel);
