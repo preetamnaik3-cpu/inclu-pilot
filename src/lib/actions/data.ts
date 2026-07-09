@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireRole, requireUser } from "@/lib/auth/guards";
+import { after } from "next/server";
+import { requireRole, requireUser, requireAuthenticatedUser } from "@/lib/auth/guards";
 import {
   getAttachmentKindFromFile,
   validateChatFile,
@@ -89,7 +90,7 @@ export async function sendMessage(
   body: string,
   file?: File,
 ) {
-  const auth = await requireUser();
+  const auth = await requireAuthenticatedUser();
   if (!auth.ok) return { error: auth.error };
 
   const trimmed = body.trim();
@@ -138,19 +139,21 @@ export async function sendMessage(
 
   if (error) return { error: error.message };
 
-  // Fire-and-forget: enqueue + deliver push notifications via Supabase Edge Function.
-  // If the function/env isn't configured yet, chat still works normally.
-  try {
-    if (inserted?.id) {
-      await auth.supabase.functions.invoke("send-push", {
-        body: {
-          conversationId,
-          message: { id: inserted.id, senderId: auth.user.id, body: trimmed },
-        },
-      });
-    }
-  } catch {
-    // ignore
+  if (inserted?.id) {
+    const { supabase, user } = auth;
+    const messageId = inserted.id;
+    const messageBody = trimmed;
+    const senderId = user.id;
+    after(() => {
+      void supabase.functions
+        .invoke("send-push", {
+          body: {
+            conversationId,
+            message: { id: messageId, senderId, body: messageBody },
+          },
+        })
+        .catch(() => undefined);
+    });
   }
 
   return { success: true };

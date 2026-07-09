@@ -17,6 +17,33 @@ type GuardFailure = {
 
 export type GuardResult = GuardSuccess | GuardFailure;
 
+type AuthSuccess = {
+  ok: true;
+  supabase: SupabaseClient;
+  user: User;
+};
+
+type AuthFailure = {
+  ok: false;
+  error: string;
+};
+
+export type AuthResult = AuthSuccess | AuthFailure;
+
+/** Auth check without a profiles round-trip — use for hot paths like chat send. */
+export async function requireAuthenticatedUser(): Promise<AuthResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: "Not authenticated" };
+  }
+
+  return { ok: true, supabase, user };
+}
+
 export async function requireUser(): Promise<GuardResult> {
   const supabase = await createClient();
   const {

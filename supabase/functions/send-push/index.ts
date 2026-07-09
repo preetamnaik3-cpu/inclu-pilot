@@ -330,8 +330,9 @@ serve(async (req) => {
     }
 
     const deliverResults: Array<{ id: string; status: string; error?: string }> = [];
-    for (const row of (inserted ?? []) as OutboxRow[]) {
-      const r = await deliverOutboxRow(supabase, row);
+    const rows = (inserted ?? []) as OutboxRow[];
+    const nested = await Promise.all(rows.map((row) => deliverOutboxRow(supabase, row)));
+    for (const r of nested) {
       deliverResults.push(...r);
     }
 

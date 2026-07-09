@@ -59,6 +59,11 @@ export function TeamWorkView({
 
     if (live && conversationId) {
       setSendingFor(activityId);
+      setErrorFor((prev) => {
+        const next = { ...prev };
+        delete next[activityId];
+        return next;
+      });
       const result = await sendMessage(conversationId, trimmed);
       setSendingFor(null);
       if (result?.error) {
