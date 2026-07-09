@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { usePortalNavigation } from "@/components/portal-navigation";
 
 interface NavItem {
   href: string;
@@ -34,24 +35,25 @@ function NavIcon({ icon, active }: { icon: NavItem["icon"]; active: boolean }) {
   );
 }
 
+function isActiveRoute(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function BottomNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
+  const portalNav = usePortalNavigation();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-stone-200/80 bg-white/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-lg items-center justify-around px-4 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {items.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              prefetch={false}
-              className={`relative flex flex-col items-center gap-0.5 rounded-xl px-5 py-1.5 text-[10px] font-semibold transition-colors ${
-                active ? "text-burgundy" : "text-stone-400"
-              }`}
-            >
+          const active = isActiveRoute(pathname, item.href);
+          const className = `relative flex flex-col items-center gap-0.5 rounded-xl px-5 py-1.5 text-[10px] font-semibold transition-colors ${
+            active ? "text-burgundy" : "text-stone-400"
+          }`;
+
+          const content = (
+            <>
               <NavIcon icon={item.icon} active={active} />
               <span>{item.label}</span>
               {item.badge ? (
@@ -59,6 +61,30 @@ export function BottomNav({ items }: { items: NavItem[] }) {
                   {item.badge}
                 </span>
               ) : null}
+            </>
+          );
+
+          if (portalNav && !active) {
+            return (
+              <button
+                key={item.href}
+                type="button"
+                onClick={() => portalNav.navigate(item.href)}
+                className={className}
+              >
+                {content}
+              </button>
+            );
+          }
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              prefetch={false}
+              className={className}
+            >
+              {content}
             </Link>
           );
         })}

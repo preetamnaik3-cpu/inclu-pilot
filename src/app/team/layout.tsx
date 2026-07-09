@@ -1,5 +1,6 @@
 import { PoweredByBadge } from "@/components/brand-logo";
 import { BottomNav } from "@/components/bottom-nav";
+import { PortalNavigationProvider } from "@/components/portal-navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +15,14 @@ export default function TeamLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto min-h-screen max-w-lg bg-background pb-28">
-      {children}
-      <div className="fixed bottom-[4.25rem] left-0 right-0 z-40 mx-auto max-w-lg px-4">
-        <PoweredByBadge />
+    <PortalNavigationProvider>
+      <div className="mx-auto min-h-screen max-w-lg bg-background pb-28">
+        {children}
+        <div className="fixed bottom-[4.25rem] left-0 right-0 z-40 mx-auto max-w-lg px-4">
+          <PoweredByBadge />
+        </div>
+        <BottomNav items={teamNav} />
       </div>
-      <BottomNav items={teamNav} />
-    </div>
+    </PortalNavigationProvider>
   );
 }
