@@ -855,6 +855,48 @@ export async function getConversation(
   return data;
 }
 
+/** Lightweight chat bootstrap — avoids loading work items and assignments. */
+export async function getClientChatPageData() {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "client") return null;
+
+  const supabase = await createClient();
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, manager_id")
+    .eq("client_id", profile.id)
+    .maybeSingle();
+
+  if (!project) return null;
+
+  const [managerResult, conversation] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name, designation")
+      .eq("id", project.manager_id)
+      .single(),
+    getConversation(project.id, "client_manager"),
+  ]);
+
+  if (!conversation) {
+    return {
+      profile,
+      managerName: managerResult.data?.full_name ?? "Manager",
+      conversation: null,
+      messages: [],
+    };
+  }
+
+  const messages = await getMessages(conversation.id, profile.id);
+
+  return {
+    profile,
+    managerName: managerResult.data?.full_name ?? "Manager",
+    conversation,
+    messages,
+  };
+}
+
 export async function getMessages(conversationId: string, currentUserId: string) {
   const supabase = await createClient();
   const { data } = await supabase

@@ -20,8 +20,10 @@ export default async function ManagerChatThreadPage({
   }
 
   const { clientId } = await params;
-  const profile = await getCurrentProfile();
-  const client = await getManagerClientByProjectId(clientId);
+  const [profile, client] = await Promise.all([
+    getCurrentProfile(),
+    getManagerClientByProjectId(clientId),
+  ]);
 
   if (!profile || !client) {
     return (

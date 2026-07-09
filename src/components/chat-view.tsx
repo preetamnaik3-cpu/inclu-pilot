@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { ChatMessage, ChatSendPayload } from "@/lib/types";
+import type { ChatMessage, ChatSendPayload, ChatSendResult } from "@/lib/types";
 import { ChatAttachmentContent } from "@/components/chat-attachment-content";
 import {
   CHAT_ACCEPTED_FILE_TYPES,
@@ -21,13 +21,14 @@ export function ChatView({
   title: string;
   subtitle: string;
   messages: ChatMessage[];
-  onSend: (payload: ChatSendPayload) => void | Promise<void>;
+  onSend: (payload: ChatSendPayload) => void | Promise<ChatSendResult | void>;
   placeholder?: string;
   allowAttachments?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,11 +60,30 @@ export function ChatView({
     if (!trimmed && !pendingFile) return;
     if (sending) return;
 
+    const payload = { body: trimmed, file: pendingFile ?? undefined };
+    const previousInput = input;
+    const previousFile = pendingFile;
+
     setSending(true);
+    setSendError(null);
+    setInput("");
+    clearPendingFile();
+
     try {
-      await onSend({ body: trimmed, file: pendingFile ?? undefined });
-      setInput("");
-      clearPendingFile();
+      const result = await onSend(payload);
+      if (result?.error) {
+        setSendError(result.error);
+        setInput(previousInput);
+        if (previousFile) {
+          setPendingFile(previousFile);
+        }
+      }
+    } catch {
+      setSendError("Failed to send message. Please try again.");
+      setInput(previousInput);
+      if (previousFile) {
+        setPendingFile(previousFile);
+      }
     } finally {
       setSending(false);
     }
@@ -148,6 +168,10 @@ export function ChatView({
           <p className="mb-2 text-xs text-red-600">{fileError}</p>
         ) : null}
 
+        {sendError ? (
+          <p className="mb-2 text-xs text-red-600">{sendError}</p>
+        ) : null}
+
         <div className="flex items-center gap-2">
           {allowAttachments ? (
             <>
@@ -163,6 +187,7 @@ export function ChatView({
                 onClick={() => fileInputRef.current?.click()}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition-colors hover:bg-stone-200/80 hover:text-burgundy"
                 aria-label="Attach file"
+                disabled={sending}
               >
                 <svg
                   width="18"
@@ -185,13 +210,19 @@ export function ChatView({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
             placeholder={placeholder}
+            disabled={sending}
             className="input-field flex-1 px-4 py-2.5 text-sm"
           />
           <button
             type="button"
-            onClick={handleSend}
+            onClick={() => void handleSend()}
             disabled={!canSend || sending}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-burgundy text-white transition-colors hover:bg-burgundy-hover disabled:opacity-40"
             aria-label="Send message"

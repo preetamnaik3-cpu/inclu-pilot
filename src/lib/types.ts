@@ -129,6 +129,8 @@ export interface ChatSendPayload {
   file?: File;
 }
 
+export type ChatSendResult = { error?: string };
+
 export interface ChatMessage {
   id: string;
   senderId: string;
