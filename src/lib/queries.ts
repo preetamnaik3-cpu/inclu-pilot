@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/database.types";
-import type { ActivityUpdate, ClientNotification, ClientProject, WorkItem, WorkStatus } from "@/lib/types";
+import type { ActivityUpdate, ClientNotification, ClientProject, ManagerClientSummary, WorkItem, WorkStatus } from "@/lib/types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
@@ -236,7 +236,7 @@ export async function getProjectIdForWorkItem(
   return data?.project_id ?? null;
 }
 
-export async function getManagerProjectTabs() {
+export const getManagerProjectTabs = cache(async () => {
   const supabase = await createClient();
   const profile = await getCurrentProfile();
   if (!profile || profile.role !== "manager") return [];
@@ -264,7 +264,7 @@ export async function getManagerProjectTabs() {
     projectName: p.name,
     clientName: clientMap[p.client_id] ?? "Client",
   }));
-}
+});
 
 export async function getClientNoteCountsForProject(projectId: string) {
   const supabase = await createClient();
@@ -282,7 +282,7 @@ export async function getClientNoteCountsForProject(projectId: string) {
   return counts;
 }
 
-export async function getManagerClients() {
+export const getManagerClients = cache(async () => {
   const supabase = await createClient();
   const profile = await getCurrentProfile();
   if (!profile || profile.role !== "manager") return [];
@@ -336,7 +336,7 @@ export async function getManagerClients() {
           .select("id, conversation_id, sender_id, body, created_at")
           .in("conversation_id", conversationIds)
           .order("created_at", { ascending: false })
-          .limit(40)
+          .limit(Math.max(conversationIds.length * 5, 40))
       : { data: [] };
 
   const { data: reads } =
@@ -362,10 +362,8 @@ export async function getManagerClients() {
     }>
   > = {};
   for (const message of messages ?? []) {
-    if (!messagesByConversation[message.conversation_id]) {
-      messagesByConversation[message.conversation_id] = [];
-    }
-    messagesByConversation[message.conversation_id].push(message);
+    if (messagesByConversation[message.conversation_id]) continue;
+    messagesByConversation[message.conversation_id] = [message];
   }
 
   return projects.map((p) => {
@@ -396,8 +394,9 @@ export async function getManagerClients() {
       : [];
     const latestMessage = convoMessages[0];
     const lastReadAt = conversationId ? readMap[conversationId] : undefined;
-    const unreadCount = convoMessages.filter(
+    const unreadCount = (messages ?? []).filter(
       (m) =>
+        m.conversation_id === conversationId &&
         m.sender_id !== profile.id &&
         (!lastReadAt || new Date(m.created_at) > new Date(lastReadAt)),
     ).length;
@@ -420,7 +419,7 @@ export async function getManagerClients() {
       pendingNoteCount: pendingNotes,
     };
   });
-}
+});
 
 export async function getManagerClientByProjectId(projectId: string) {
   const clients = await getManagerClients();
@@ -509,7 +508,7 @@ export type UnassignedUser = {
   fullName: string;
 };
 
-export async function getUnassignedUsers(): Promise<UnassignedUser[]> {
+export const getUnassignedUsers = cache(async (): Promise<UnassignedUser[]> => {
   const supabase = await createClient();
   const profile = await getCurrentProfile();
   if (!profile || (profile.role !== "manager" && profile.role !== "admin")) {
@@ -544,12 +543,233 @@ export async function getUnassignedUsers(): Promise<UnassignedUser[]> {
     email: row.email,
     fullName: row.full_name,
   }));
-}
+});
 
 export type ManagerProjectOption = {
   id: string;
   label: string;
 };
+
+type ManagerProjectRow = {
+  id: string;
+  name: string;
+  client_id: string;
+  created_at: string;
+};
+
+function buildLightClientSummaries(
+  projects: ManagerProjectRow[],
+  clientMap: Record<string, string>,
+  workItems: Array<{ id: string; project_id: string; status: string; due_label: string | null }>,
+): ManagerClientSummary[] {
+  return projects.map((p) => {
+    const projectWorkItems = workItems.filter((wi) => wi.project_id === p.id);
+    const activeCount = projectWorkItems.filter((wi) => wi.status !== "done").length;
+    const inReview = projectWorkItems.find((wi) => wi.status === "in_review");
+
+    return {
+      id: p.id,
+      projectName: p.name,
+      clientName: clientMap[p.client_id] ?? "Client",
+      lastMessage: "No messages yet",
+      lastMessageTime: "",
+      statusLine: inReview
+        ? `${inReview.due_label ?? "Activity"} in review`
+        : activeCount > 0
+          ? `${activeCount} active activit${activeCount === 1 ? "y" : "ies"}`
+          : "Active project",
+      unreadCount: 0,
+      activeActivityCount: activeCount,
+      pendingNoteCount: 0,
+    };
+  });
+}
+
+export const getManagerDashboard = cache(async () => {
+  const supabase = await createClient();
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "manager") {
+    return {
+      clientSummaries: [] as ManagerClientSummary[],
+      unassignedUsers: [] as UnassignedUser[],
+      projectOptions: [] as ManagerProjectOption[],
+      rosters: [] as ProjectTeamRoster[],
+    };
+  }
+
+  const [{ data: projects }, unassignedUsers] = await Promise.all([
+    supabase
+      .from("projects")
+      .select("id, name, client_id, created_at")
+      .eq("manager_id", profile.id)
+      .order("created_at"),
+    getUnassignedUsers(),
+  ]);
+
+  if (!projects?.length) {
+    return {
+      clientSummaries: [],
+      unassignedUsers,
+      projectOptions: [],
+      rosters: [],
+    };
+  }
+
+  const projectIds = projects.map((p) => p.id);
+  const clientIds = projects.map((p) => p.client_id);
+
+  const [
+    { data: clientProfiles },
+    { data: workItems },
+    { data: teamRows },
+  ] = await Promise.all([
+    supabase.from("profiles").select("id, full_name").in("id", clientIds),
+    supabase
+      .from("work_items")
+      .select("id, project_id, status, due_label")
+      .in("project_id", projectIds),
+    supabase
+      .from("project_team_members")
+      .select("project_id, user_id")
+      .in("project_id", projectIds),
+  ]);
+
+  const clientMap = Object.fromEntries(
+    (clientProfiles ?? []).map((c) => [c.id, c.full_name]),
+  );
+
+  const projectOptions: ManagerProjectOption[] = projects.map((p) => ({
+    id: p.id,
+    label: `${p.name} (${clientMap[p.client_id] ?? "Client"})`,
+  }));
+
+  const teamUserIds = [...new Set((teamRows ?? []).map((row) => row.user_id))];
+  const { data: teamProfiles } =
+    teamUserIds.length > 0
+      ? await supabase
+          .from("profiles")
+          .select("id, email, full_name, designation")
+          .in("id", teamUserIds)
+      : { data: [] };
+
+  const teamProfileMap = Object.fromEntries(
+    (teamProfiles ?? []).map((member) => [member.id, member]),
+  );
+
+  const rosters: ProjectTeamRoster[] = projects.map((project) => {
+    const members = (teamRows ?? [])
+      .filter((row) => row.project_id === project.id)
+      .map((row) => teamProfileMap[row.user_id])
+      .filter(Boolean)
+      .map((member) => ({
+        userId: member!.id,
+        email: member!.email,
+        fullName: member!.full_name,
+        designation: member!.designation,
+      }));
+
+    return {
+      projectId: project.id,
+      projectLabel: `${project.name} (${clientMap[project.client_id] ?? "Client"})`,
+      members,
+    };
+  });
+
+  return {
+    clientSummaries: buildLightClientSummaries(
+      projects,
+      clientMap,
+      workItems ?? [],
+    ),
+    unassignedUsers,
+    projectOptions,
+    rosters,
+  };
+});
+
+export async function enrichManagerClientSummaries(
+  summaries: ManagerClientSummary[],
+): Promise<ManagerClientSummary[]> {
+  if (!summaries.length) return summaries;
+
+  const supabase = await createClient();
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "manager") return summaries;
+
+  const projectIds = summaries.map((summary) => summary.id);
+
+  const { data: conversations } = await supabase
+    .from("conversations")
+    .select("id, project_id")
+    .in("project_id", projectIds)
+    .eq("type", "client_manager");
+
+  const conversationIds = (conversations ?? []).map((c) => c.id);
+  const conversationByProject = Object.fromEntries(
+    (conversations ?? []).map((c) => [c.project_id, c.id]),
+  );
+
+  const [{ data: messages }, { data: reads }] = await Promise.all([
+    conversationIds.length > 0
+      ? supabase
+          .from("messages")
+          .select("id, conversation_id, sender_id, body, created_at")
+          .in("conversation_id", conversationIds)
+          .order("created_at", { ascending: false })
+          .limit(Math.max(conversationIds.length * 5, 20))
+      : Promise.resolve({ data: [] }),
+    conversationIds.length > 0
+      ? supabase
+          .from("conversation_reads")
+          .select("conversation_id, last_read_at")
+          .eq("user_id", profile.id)
+          .in("conversation_id", conversationIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const latestByConversation: Record<
+    string,
+    {
+      id: string;
+      conversation_id: string;
+      sender_id: string;
+      body: string;
+      created_at: string;
+    }
+  > = {};
+  for (const message of messages ?? []) {
+    if (!latestByConversation[message.conversation_id]) {
+      latestByConversation[message.conversation_id] = message;
+    }
+  }
+
+  const readMap = Object.fromEntries(
+    (reads ?? []).map((row) => [row.conversation_id, row.last_read_at]),
+  );
+
+  return summaries.map((summary) => {
+    const conversationId = conversationByProject[summary.id];
+    const latestMessage = conversationId
+      ? latestByConversation[conversationId]
+      : undefined;
+    const lastReadAt = conversationId ? readMap[conversationId] : undefined;
+    const unreadCount = (messages ?? []).filter(
+      (message) =>
+        message.conversation_id === conversationId &&
+        message.sender_id !== profile.id &&
+        (!lastReadAt || new Date(message.created_at) > new Date(lastReadAt)),
+    ).length;
+
+    return {
+      ...summary,
+      lastMessage: latestMessage?.body ?? summary.lastMessage,
+      lastMessageTime: latestMessage
+        ? formatRelative(latestMessage.created_at)
+        : summary.lastMessageTime,
+      unreadCount,
+    };
+  });
+}
 
 export async function getManagerProjectsForSelect(): Promise<
   ManagerProjectOption[]
@@ -574,44 +794,49 @@ export type ProjectTeamRoster = {
   members: ProjectTeamMember[];
 };
 
-export async function getManagerProjectTeamRosters(): Promise<
-  ProjectTeamRoster[]
-> {
+export async function getManagerProjectTeamRosters(
+  projectOptions?: ManagerProjectOption[],
+): Promise<ProjectTeamRoster[]> {
+  const options =
+    projectOptions ?? (await getManagerProjectsForSelect());
+
+  if (!options.length) return [];
+
   const supabase = await createClient();
-  const projects = await getManagerProjectsForSelect();
+  const projectIds = options.map((project) => project.id);
 
-  const rosters = await Promise.all(
-    projects.map(async (project) => {
-      const { data, error } = await supabase.rpc("get_manager_project_team", {
-        p_project_id: project.id,
-      });
+  const { data: teamRows } = await supabase
+    .from("project_team_members")
+    .select("project_id, user_id")
+    .in("project_id", projectIds);
 
-      const members: ProjectTeamMember[] =
-        error || !data
-          ? []
-          : (
-              data as {
-                user_id: string;
-                email: string;
-                full_name: string;
-                designation: string | null;
-              }[]
-            ).map((row) => ({
-              userId: row.user_id,
-              email: row.email,
-              fullName: row.full_name,
-              designation: row.designation,
-            }));
+  const teamUserIds = [...new Set((teamRows ?? []).map((row) => row.user_id))];
+  const { data: teamProfiles } =
+    teamUserIds.length > 0
+      ? await supabase
+          .from("profiles")
+          .select("id, email, full_name, designation")
+          .in("id", teamUserIds)
+      : { data: [] };
 
-      return {
-        projectId: project.id,
-        projectLabel: project.label,
-        members,
-      };
-    }),
+  const teamProfileMap = Object.fromEntries(
+    (teamProfiles ?? []).map((member) => [member.id, member]),
   );
 
-  return rosters;
+  return options.map((project) => ({
+    projectId: project.id,
+    projectLabel: project.label,
+    members: (teamRows ?? [])
+      .filter((row) => row.project_id === project.id)
+      .map((row) => teamProfileMap[row.user_id])
+      .filter(Boolean)
+      .map((member) => ({
+        userId: member!.id,
+        email: member!.email,
+        fullName: member!.full_name,
+        designation: member!.designation,
+      })),
+  }));
 }
 
 export async function getConversation(

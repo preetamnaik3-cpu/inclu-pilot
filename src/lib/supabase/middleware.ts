@@ -1,10 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import {
-  clientHasProject,
-  resolvePostAuthRedirect,
-  teamHasProject,
-} from "@/lib/auth/onboarding";
+import { getSessionRouteContext } from "@/lib/auth/session-routing";
 import { roleCanAccessPath } from "@/lib/auth/roles";
 
 export async function updateSession(request: NextRequest) {
@@ -56,8 +52,11 @@ export async function updateSession(request: NextRequest) {
       .eq("id", user.id)
       .single();
 
-    const role = profile?.role;
-    const destination = await resolvePostAuthRedirect(supabase, user.id);
+    const { role, destination, hasAssignment } = await getSessionRouteContext(
+      supabase,
+      user.id,
+      profile?.role,
+    );
 
     if (path.startsWith("/onboarding")) {
       const url = request.nextUrl.clone();
@@ -66,12 +65,8 @@ export async function updateSession(request: NextRequest) {
     }
 
     if (
-      (role === "unassigned" ||
-        (role === "client" && !(await clientHasProject(supabase, user.id))) ||
-        (role === "team" && !(await teamHasProject(supabase, user.id)))) &&
-      (path.startsWith("/client") ||
-        path.startsWith("/team") ||
-        path === "/")
+      !hasAssignment &&
+      (path.startsWith("/client") || path.startsWith("/team") || path === "/")
     ) {
       const url = request.nextUrl.clone();
       url.pathname = "/waiting";
@@ -92,7 +87,7 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    if (user && path === "/") {
+    if (path === "/") {
       const url = request.nextUrl.clone();
       url.pathname = destination;
       return NextResponse.redirect(url);
