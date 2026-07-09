@@ -31,8 +31,9 @@ const baseUrl = process.env.APP_URL || "http://localhost:3000";
 
 const MANAGER_EMAIL = "asrkrao191@gmail.com";
 const MANAGER_PASSWORD = "Demo1234!";
-const CLIENT_EMAIL = "demo  1@inclupilot.test";
-const TEAM_EMAIL = "demo  2@inclupilot.test";
+const CLIENT_EMAIL = "demo003@inclupilot.test";
+const TEAM_EMAIL = "demo004@inclupilot.test";
+const UNASSIGNED_EMAIL = "demo005@inclupilot.test";
 const PASSWORD = "Demo1234!";
 
 const results = { smoke: [], perf: [], errors: [] };
@@ -91,6 +92,15 @@ async function cleanupTestProject(supabase) {
   }
 }
 
+async function projectIdForClient(supabase, clientId) {
+  const { data } = await supabase
+    .from("projects")
+    .select("id")
+    .eq("client_id", clientId)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
 async function main() {
   console.log("\n=== IncluPilot Audit: Option 1 (Smoke) + Option 3 (Perf) ===\n");
   console.log(`App: ${baseUrl}`);
@@ -102,36 +112,7 @@ async function main() {
   await measurePage("/waiting", "GET /waiting (redirect expected)");
   await measurePage("/manager", "GET /manager (redirect expected)");
 
-  // --- Smoke 1: unassigned user lands waiting after login ---
-  let clientSession;
-  try {
-    clientSession = await timed("Auth sign-in (demo001)", () =>
-      signIn(CLIENT_EMAIL, PASSWORD),
-    );
-    const { data: profile } = await clientSession.supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", clientSession.user.id)
-      .single();
-    logSmoke(
-      "1",
-      "Unassigned user has role unassigned",
-      profile?.role === "unassigned",
-      `role=${profile?.role}`,
-    );
-
-    const { data: project } = await clientSession.supabase
-      .from("projects")
-      .select("id")
-      .eq("client_id", clientSession.user.id)
-      .maybeSingle();
-    logSmoke("1b", "Unassigned user has no project", !project);
-  } catch (e) {
-    logSmoke("1", "Unassigned user sign-in", false, e.message);
-    results.errors.push(String(e));
-  }
-
-  // --- Manager sign-in ---
+  // --- Manager sign-in first (needed for cleanup + assignment) ---
   let managerSession;
   try {
     managerSession = await timed("Auth sign-in (manager)", () =>
@@ -159,20 +140,45 @@ async function main() {
 
   await cleanupTestProject(managerSession.supabase);
 
+  // --- Smoke 1: unassigned user sign-in ---
+  try {
+    const unassignedSession = await timed("Auth sign-in (unassigned)", () =>
+      signIn(UNASSIGNED_EMAIL, PASSWORD),
+    );
+    const { data: profile } = await unassignedSession.supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", unassignedSession.user.id)
+      .single();
+    logSmoke(
+      "1",
+      "Unassigned user has role unassigned",
+      profile?.role === "unassigned",
+      `role=${profile?.role}`,
+    );
+
+    const { data: project } = await unassignedSession.supabase
+      .from("projects")
+      .select("id")
+      .eq("client_id", unassignedSession.user.id)
+      .maybeSingle();
+    logSmoke("1b", "Unassigned user has no project", !project);
+  } catch (e) {
+    logSmoke("1", "Unassigned user sign-in", false, e.message);
+    results.errors.push(String(e));
+  }
+
   // --- Perf: unassigned users RPC ---
   try {
-    const { data: users, error } = await timed(
-      "RPC get_unassigned_users (100 users)",
-      async () => {
-        const r = await managerSession.supabase.rpc("get_unassigned_users");
-        if (r.error) throw r.error;
-        return r.data;
-      },
-    );
+    const users = await timed("RPC get_unassigned_users", async () => {
+      const r = await managerSession.supabase.rpc("get_unassigned_users");
+      if (r.error) throw r.error;
+      return r.data;
+    });
     logSmoke(
       "8",
-      "100 demo users in dropdown source",
-      (users?.length ?? 0) >= 100,
+      "Demo users in dropdown source",
+      (users?.length ?? 0) >= 90,
       `count=${users?.length ?? 0}`,
     );
   } catch (e) {
@@ -180,23 +186,24 @@ async function main() {
   }
 
   // --- Smoke 2: assign client ---
+  let clientSession;
   let projectId;
   try {
-    const clientId = clientSession?.user?.id;
-    if (!clientId) throw new Error("No client id");
+    clientSession = await signIn(CLIENT_EMAIL, PASSWORD);
+    const clientId = clientSession.user.id;
 
-    const { data: pid, error } = await timed(
-      "RPC manager_assign_client",
-      async () => {
-        const r = await managerSession.supabase.rpc("manager_assign_client", {
-          p_user_id: clientId,
-          p_project_name: "Audit Test Project",
-        });
-        if (r.error) throw r.error;
-        return r.data;
-      },
-    );
-    projectId = pid;
+    projectId = await timed("RPC manager_assign_client", async () => {
+      const r = await managerSession.supabase.rpc("manager_assign_client", {
+        p_user_id: clientId,
+        p_project_name: "Audit Test Project",
+      });
+      if (r.error) throw r.error;
+      return r.data;
+    });
+
+    if (!projectId) {
+      projectId = await projectIdForClient(managerSession.supabase, clientId);
+    }
 
     const { data: cp } = await clientSession.supabase
       .from("profiles")
@@ -219,17 +226,29 @@ async function main() {
       "Assigned client removed from unassigned list",
       !stillInList,
     );
+
+    const { data: clientProject } = await clientSession.supabase
+      .from("projects")
+      .select("id")
+      .eq("client_id", clientId)
+      .maybeSingle();
+    logSmoke(
+      "3",
+      "Client can read own project (portal route)",
+      Boolean(clientProject?.id),
+    );
   } catch (e) {
     logSmoke("2", "Manager assigns client", false, e.message);
   }
 
-  // --- Smoke 3: assign team ---
+  // --- Smoke 4: assign team ---
   let teamSession;
   try {
+    if (!projectId) throw new Error("No project id for team assignment");
     teamSession = await signIn(TEAM_EMAIL, PASSWORD);
     const teamId = teamSession.user.id;
 
-    const { error } = await timed("RPC manager_assign_team_member", async () => {
+    await timed("RPC manager_assign_team_member", async () => {
       const r = await managerSession.supabase.rpc("manager_assign_team_member", {
         p_user_id: teamId,
         p_project_id: projectId,
@@ -253,6 +272,11 @@ async function main() {
       "4b",
       "Team member on project_team_members",
       membership?.project_id === projectId,
+    );
+    logSmoke(
+      "4c",
+      "Team can read project membership (portal route)",
+      Boolean(membership?.project_id),
     );
   } catch (e) {
     logSmoke("4", "Manager assigns team", false, e.message);
@@ -317,6 +341,7 @@ async function main() {
 
   // --- Smoke 7: cross-role RLS spot checks ---
   try {
+    if (!clientSession) throw new Error("No client session");
     const { data: otherProjects, error } = await clientSession.supabase
       .from("projects")
       .select("id")

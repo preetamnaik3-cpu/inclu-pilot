@@ -58,15 +58,18 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 **Fresh database (recommended):** run `supabase/schema/canonical.sql` in the Supabase SQL Editor.
 
-**Incremental migrations:** apply files in `supabase/migrations/` in chronological order:
+**Incremental migrations:** apply files in `supabase/migrations/` in chronological order through `20260709120000_normalize_demo_emails.sql`.
 
-1. `20260707000000_initial_schema.sql`
-2. `20260707100100_chat_attachments.sql`
-3. `20260707120000_unified_hub_updates.sql`
-4. `20260707150000_fix_internal_team_enum.sql`
-5. `20260707190000_p1_multi_client_files_notifications.sql`
+Key later migrations:
 
-Initial data can be loaded via `supabase/seed.sql` and `supabase/seed-multi-client.sql` after users are provisioned in Supabase Auth.
+- `20260708145000` — `unassigned` role
+- `20260708150000` — team assignment RPCs + `project_team_members`
+- `20260708170000` — manager delete project
+- `20260709100000` — fix SQL-seeded email/password auth (GoTrue token fields)
+- `20260709110000` — fix `get_unassigned_users` ambiguous `id`
+- `20260709120000` — normalize demo emails to `demo001@inclupilot.test`
+
+Demo users (optional): run `supabase/seed-100-demo-users.sql` in the Supabase SQL editor. Default password: `Demo1234!`.
 
 ### 4. Enable Realtime
 
@@ -93,12 +96,13 @@ Users are created in Supabase Auth. A profile row is created automatically on si
 
 | Role | Portal route | Description |
 |------|--------------|-------------|
+| `unassigned` | `/waiting` | Signed in but not yet assigned to a project |
 | `client` | `/client` | Project visibility, activities, manager chat |
 | `manager` | `/manager` | Client portfolio, activities, publish controls |
 | `team` | `/team/work` | Assigned work items, internal updates |
 | `admin` | `/manager` | Full manager access |
 
-Middleware enforces portal isolation based on `profiles.role`.
+Managers assign clients and team from registered users on `/manager`. New signups land on `/waiting` until assigned.
 
 ## Architecture
 
@@ -157,10 +161,23 @@ supabase/
 ### Vercel
 
 1. Import the repository from GitHub
-2. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in **Project Settings → Environment Variables**
-3. Deploy
+2. Add environment variables in **Project Settings → Environment Variables**:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+3. Apply all migrations in `supabase/migrations/` to your Supabase project (SQL editor or CLI)
+4. In Supabase → **Authentication → URL configuration**, add your Vercel preview/production URLs to **Redirect URLs**
+5. Enable Google OAuth in Supabase if using Google sign-in
+6. Deploy
 
 The Supabase database is hosted separately and is not tied to the frontend deployment lifecycle.
+
+### Post-deploy smoke check
+
+```bash
+node scripts/audit-smoke-perf.mjs
+```
+
+Requires `.env.local` with Supabase keys. Starts the dev server separately if you want local page timing (`npm run dev`).
 
 ## Scripts
 

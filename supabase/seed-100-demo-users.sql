@@ -57,22 +57,44 @@ begin
     email,
     encrypted_password,
     email_confirmed_at,
+    confirmed_at,
     raw_app_meta_data,
     raw_user_meta_data,
     created_at,
-    updated_at
+    updated_at,
+    confirmation_token,
+    recovery_token,
+    email_change_token_new,
+    email_change_token_current,
+    email_change,
+    phone_change,
+    phone_change_token,
+    reauthentication_token,
+    is_sso_user,
+    is_anonymous
   ) values (
     new_id,
     '00000000-0000-0000-0000-000000000000',
     'authenticated',
     'authenticated',
-    lower(user_email),
+    lower(trim(user_email)),
     extensions.crypt(user_password, extensions.gen_salt('bf')),
+    now(),
     now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
     jsonb_build_object('full_name', user_full_name),
     now(),
-    now()
+    now(),
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    false,
+    false
   );
 
   insert into auth.identities (
@@ -80,14 +102,16 @@ begin
     user_id,
     identity_data,
     provider,
+    email,
     last_sign_in_at,
     created_at,
     updated_at
   ) values (
     new_id::text,
     new_id,
-    jsonb_build_object('sub', new_id::text, 'email', lower(user_email)),
+    jsonb_build_object('sub', new_id::text, 'email', lower(trim(user_email))),
     'email',
+    lower(trim(user_email)),
     now(),
     now(),
     now()
@@ -107,9 +131,9 @@ declare
 begin
   for i in 1..100 loop
     perform public.seed_auth_email_user(
-      format('demo%03s@inclupilot.test', i),
+      'demo' || lpad(i::text, 3, '0') || '@inclupilot.test',
       'Demo1234!',
-      format('Demo User %03s', i)
+      'Demo User ' || lpad(i::text, 3, '0')
     );
   end loop;
 end $$;
